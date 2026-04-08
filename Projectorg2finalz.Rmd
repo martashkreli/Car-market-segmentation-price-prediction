@@ -1,0 +1,1449 @@
+---
+title: "January Session"
+author: "Marta Shkreli"
+date: "2024-1-12"
+output:
+  html_document: default
+  pdf_document: default
+---
+
+# Data Analysis For Business - Final Project
+
+Marta Shkreli - 268341
+
+## Introduction and data description
+
+>On this project I will be working on dataset that contains information about automobiles. Each row represents a different car model. For each observation we have information about the car features and the price. My goal is to build a predictive model for the sale prices of cars based on their characteristics. As an additional task I will explore the possibility of clustering car types using the available covariates.
+
+### Preliminary code
+In the very first section I loaded packages and libraries that were used during the analyis.
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE)
+```
+
+
+```{r, echo = FALSE, warning=FALSE, message=FALSE}
+#install.packages("knitr")
+#install.packages("dplyr")
+#install.packages("mltools")
+#install.packages("data.table")
+#install.packages("ggplot2")
+#install.packages("purrr")
+#install.packages("class")
+#install.packages("caret")
+#install.packages("factoextra")
+#install.packages("Hmisc")
+#install.packages("corrgram")
+#install.packages("randomForest")
+#install.packages("ggcorrplot")
+#install.packages("tidyverse")
+#install.packages("neuralnet")
+#install.packages("gtools")
+#install.packages("glmnet")
+#install.packages(stringr)
+#install.packages("mgcv")
+#install.packages("cluster")
+#install.packages("FactoMineR")
+#install.packages("pander")
+#install.packages("corrplot")
+#install.packages("gridExtra")
+```
+
+```{r, echo = FALSE, warning=FALSE, message=FALSE}
+
+library(dplyr) # imports library to clean "Unknown" replacing with NA
+library(mltools) # imports library to apply the one_hot encoder
+library(data.table) # imports library to apply the one_hot encoder
+library(ggplot2) # imports library to visualize graphs
+library(purrr) # imports library to ease computations
+library(class) # imports library for k-nn
+library(caret) # imports library for data partition
+library(GGally) # imports library for combining geometric objects with transformed data
+library(factoextra) # imports library for extracting and visualizing the output of multivariate data analyses
+library(Hmisc) # imports library for correlation
+library(corrplot) # imports library for correlation
+library(ggcorrplot) # imports library for correlation matrix
+library(randomForest) # imports library for random forests
+library(tidyverse)
+library(modelr)
+library(broom)
+library(neuralnet)
+library(gtools)
+library(glmnet) # imports library for fitting generalized linear models via penalized maximum likelihood
+library(stringr)
+library(mgcv) # imports library for GAM
+library(cluster) 
+library(FactoMineR)
+library(pander)
+library(gridExtra)
+```
+
+### Data cleaning and Encoding
+In this first part my aim was to gain a general understanding of the structure and contents of the data-set; I will also prepare it for the following analysis by cleaning it and encoding the categorical variables.
+
+```{r, echo = FALSE, warning=FALSE, message=FALSE}
+# IMPORTING CAR PRICES DATASET
+
+# imports data-set as data-frame from .csv file with relative path
+car_prices = read.csv("CarPrices.csv",
+                      sep = ",",
+                      dec = ".",
+                      header = T,
+                      colClasses = "character")
+```
+
+
+
+
+```{r, echo = FALSE, warning=FALSE, message=FALSE}
+car_prices = read.csv("CarPrices.csv",
+                      sep = ",",
+                      dec = ".",
+                      header = T,
+                      colClasses = "character")
+
+print("Cars dataframe:")
+str(car_prices)
+
+```
+
+I started by checking for any issues with data quality, such as duplicates, missing and unary values, which were not found; I performed data cleaning steps, by transforming quantitative variables in the proper data type.
+
+```{r, echo = FALSE, warning=FALSE, message=FALSE}
+# Check for duplicates
+duplicate_rows <- duplicated(car_prices)
+cat("Number of duplicate rows:", sum(duplicate_rows), "\n")
+
+# If there are duplicates, remove them
+if (sum(duplicate_rows) > 0) {
+  car_prices <- car_prices[!duplicate_rows, ]
+}
+
+# Check for missing values in each column
+missing_values <- sapply(car_prices, function(x) sum(is.na(x)))
+cat("Total missing values in the dataset:", sum(is.na(car_prices)), "\n")
+
+# remove rows with missing values
+car_prices <- na.omit(car_prices)
+
+# Identify unary variables
+unary_columns <- sapply(car_prices, function(x) length(unique(x)) == 1)
+# Print the unary columns
+cat("Unary columns:\n")
+print(names(car_prices)[unary_columns])
+
+# Drop unary columns
+car_prices <- car_prices[, !unary_columns]
+
+# correctly saving numerical values
+cleaned_car_prices = car_prices
+# generates a list of numerical variables saved as characters strings
+numericalVariables <- c('wheelbase', 'carlength', 'carwidth', 'carheight', 'curbweight', 'enginesize', 'boreratio', 'stroke', 'compressionratio', 'horsepower', 'peakrpm', 'citympg', 'highwaympg', 'price')
+for (tempVar in numericalVariables) {
+  cleaned_car_prices[[tempVar]] <- as.numeric(cleaned_car_prices[[tempVar]])
+}
+
+```
+
+---
+
+I focused on the overall structure of the dataset, addressing the problem with the "carCompany" column, which was mentioned in the dataset description but missing from the actual dataset. To solve this, I generated the "carCompany" column by deriving data from the "CarName" column.Also I fixed some types found on the dataset.
+
+```{r, echo = TRUE, warning=FALSE, message=FALSE}
+# Creating a column for the company name
+cleaned_car_prices$carCompany <- word(cleaned_car_prices$CarName, 1)
+
+# Correcting some typos
+carCompanyList <- unique(cleaned_car_prices$carCompany)
+cleaned_car_prices$carCompany[cleaned_car_prices$carCompany == "porcshce"] <- "Porsche"
+cleaned_car_prices$carCompany[cleaned_car_prices$carCompany == "vokswagen"] <- "VolksWagen"
+cleaned_car_prices$carCompany[cleaned_car_prices$carCompany == "volkswagen"] <- "VolksWagen"
+cleaned_car_prices$carCompany[cleaned_car_prices$carCompany == "mazda"] <- "Mazda"
+cleaned_car_prices$carCompany[cleaned_car_prices$carCompany == "nissan"] <- "Nissan"
+cleaned_car_prices$carCompany[cleaned_car_prices$carCompany == "porsche"] <- "Porsche"
+cleaned_car_prices$carCompany[cleaned_car_prices$carCompany == "toyota"] <- "Toyota"
+cleaned_car_prices$carCompany[cleaned_car_prices$carCompany == "vw"] <- "VolksWagen"
+cleaned_car_prices$carCompany[cleaned_car_prices$carCompany == "toyouta"] <- "Toyota"
+cleaned_car_prices$carCompany[cleaned_car_prices$carCompany == "Nissan"] <- "Nissan"
+cleaned_car_prices$carCompany[cleaned_car_prices$carCompany == "maxda"] <- "Mazda"
+cleaned_car_prices$carCompany[cleaned_car_prices$carCompany == "alfa-romero"] <- "AlfaRomeo"
+
+carCompanyList <- unique(cleaned_car_prices$fuelsystem)
+cleaned_car_prices$fuelsystem[cleaned_car_prices$fuelsystem == "mfi"] <- "mpfi"
+```
+
+After cleaning the data, I moved forward by encoding the categorical variables that I deemed beneficial for the regression task, excluding CarModel and car_ID.
+
+```{r, echo = FALSE, warning=FALSE, message=FALSE}
+categoricalVariables <- c('symboling', 'fueltype', 'aspiration', 'doornumber', 'carbody', 'drivewheel', 'enginelocation', 'enginetype', 'cylindernumber', 'fuelsystem', 'carCompany')
+```
+
+
+```{r, echo = TRUE, warning=FALSE, message=FALSE}
+# ENCODING CATEGORICAL VALUES
+
+encoded_car_prices <- cleaned_car_prices # copies the data-frame into a new one to be encoded
+
+# factorizing categorical values
+fact_car_prices <- cleaned_car_prices # copies the data-frame into a new one to be factorized
+for (tempVar in categoricalVariables) {  # iterates through the list of categorical variables to factorize them
+  fact_car_prices[[tempVar]] <- as.factor(cleaned_car_prices[[tempVar]])
+}
+
+encoded_car_prices <- one_hot(as.data.table(fact_car_prices)) # encodes the categorical variables
+colnames(encoded_car_prices)[which(names(encoded_car_prices) == "symboling_-1")] <- "symboling_minus_1"
+colnames(encoded_car_prices)[which(names(encoded_car_prices) == "symboling_-2")] <- "symboling_minus_2"
+
+# printing encoded data-frame
+#str(encoded_car_prices)
+```
+
+### Exploratory data analysis
+In order to construct a predictive model for car sale prices and carry out a cluster analysis of car types, I undertook an exploratory data analysis. This analysis was crucial for gaining insights and understanding the variables and their correlations.
+
+
+```{r, echo = FALSE, warning=FALSE, message=FALSE}
+
+# Summary of the data
+#summary(fact_car_prices)
+
+```
+
+Initially, I conducted a correlation analysis on the quantitative variables to comprehend their interrelationships, focusing particularly on how these variables correlate with price, the continuous variable that is the target of our prediction in the next task.
+
+```{r, echo = FALSE, warning=FALSE, message=FALSE}
+#Correlation Matrix
+
+# Compute correlation matrix for numerical variables
+correlation_matrix <- cor(cleaned_car_prices[numericalVariables])
+
+# Visualize the correlation matrix
+
+# Compute a correlogram
+corrplot(correlation_matrix, method = "color", type = "upper", order = "hclust")
+
+```
+
+I noticed that there is a very high correlation (0.87) between engine size and price. This is expected, as larger engines are intuitively associated with higher performance and luxury. Also horsepower has a significant correlation with price (0.81).
+Furthermore, I  observed significant correlations between curb weight (0.84), car length (0.68), car width (0.76), and wheelbase (0.58) with car price. These variables represent different dimensions of a car, reflecting its size and proportions. The positive correlations indicate that heavier and larger cars tend to be associated with higher prices.
+In contrast, city mpg and highway mpg shows strong negative correlations with car price (respectively -0.71 and -0.79). I assume that is because cars with higher fuel efficiency have lower operating costs, which brings to lower prices. 
+
+---
+
+Since price is the value of interest,I decided to create a histogram which shows how car prices are distributed across the dataset, by plotting the number of cars (frequency) within specified price ranges (bins).
+
+```{r, echo = FALSE, warning=FALSE, message=FALSE}
+# Histogram for Price (since it's the target variable):
+ggplot(cleaned_car_prices, aes(x=price)) + 
+  geom_histogram(binwidth=1000, fill="#69b3a3", color="#e9ecef", alpha=0.9) +
+  theme_minimal() +
+  labs(title="Distribution of Car Prices", x="Price", y="Number of Cars")
+```
+
+The majority of cars are priced in the range that corresponds to the tallest bar (around $10,000 if we're approximating from this plot). As the price increases (moving to the right on the x-axis), the number of cars in those higher price ranges generally decreases. 
+
+---
+
+I also gained some insights on the relationship among the quantitative variables and the price, plotting scatter-plots (and fitted lines over them).
+
+```{r, echo = FALSE, warning=FALSE, message=FALSE}
+#SCATTERPLOTS
+library(ggplot2)
+library(patchwork)
+
+# Create a list to store the plots
+plots_list <- list()
+
+# Initialize a counter for figures
+figure_counter <- 1
+
+# Initialize a list to store plots for the current figure
+current_figure_plots <- list()
+
+# Loop through each variable to generate scatterplots
+for (var in numericalVariables[numericalVariables != "price"]) {
+  p <- ggplot(cleaned_car_prices, aes_string(x = var, y = 'price')) + 
+    geom_point(aes(color=price), alpha=0.6) +
+    geom_smooth(method = "lm", color = "blue", se = FALSE) +
+    labs(title = paste("Scatterplot of Price vs.", var), x = var, y = "Price") +
+    theme_minimal()
+
+  # Add the plot to the current figure's list
+  current_figure_plots[[var]] <- p
+  
+  # If the current figure's list has 4 plots, arrange them into a figure
+  if (length(current_figure_plots) == 4) {
+    figure <- wrap_plots(current_figure_plots, ncol = 2)
+    assign(paste0("figure_", figure_counter), figure)
+    
+    # Reset the current figure's list and increment the figure counter
+    current_figure_plots <- list()
+    figure_counter <- figure_counter + 1
+  }
+}
+
+# Check if there are any remaining plots in the current figure's list
+if (length(current_figure_plots) > 0) {
+  figure <- wrap_plots(current_figure_plots, ncol = 2)
+  assign(paste0("figure_", figure_counter), figure)
+}
+
+# Print existing figures
+for (i in 1:figure_counter) {
+  plot_name <- paste0("figure_", i)
+  if (exists(plot_name)) {
+    print(get(plot_name))
+  }
+}
+
+```
+
+Impactful Features: What I noticed was that size and power matter: The strongest correlations with price are observed with features related to the size (wheelbase, length, width, curb weight) and power (engine size, horsepower) of the car.
+Less Impactful Features: Features like car height, engine stroke, peak RPM, and compression ratio do not show a strong correlation with price, indicating they are less important in determining the price of a car.
+
+---
+
+Since the data-set is also rich of categorical variables, I decided to gain insights about each of them.I chose pie-charts for this kind of analysis.
+
+```{r, echo = FALSE, warning=FALSE, message=FALSE}
+# PIE CHARTS
+
+# Set the layout for multiple plots
+par(mfrow = c(2, 2), mar = c(4, 4, 2, 1))
+
+for (tempVar in categoricalVariables){
+  # Get the table of frequencies
+  data_table <- table(cleaned_car_prices[,tempVar])
+
+  # Sort and select top 6 categories
+  data_table_sorted <- sort(data_table, decreasing = TRUE)
+  if (length(data_table_sorted) > 5) {
+    top_categories <- head(data_table_sorted, 5)
+    others <- sum(tail(data_table_sorted, -(5)))
+    data_table_final <- c(top_categories, Others = others)
+  } else {
+    data_table_final <- data_table_sorted
+  }
+
+  # Define colors, use gray for "Others"
+  colors <- c(rainbow(5), "gray")
+  colors <- colors[1:length(data_table_final)]
+
+  # Create the pie chart
+  pie(data_table_final,
+      main = paste("Pie chart of: ", tempVar),
+      labels = paste(round(prop.table(data_table_final) * 100, 2), "%"),
+      col = colors,
+      clockwise = TRUE,
+      cex = 0.7)
+  
+  # Add a legend
+  legend("topright",
+         legend = names(data_table_final),
+         cex = 0.6,
+         fill = colors)
+}
+
+# Reset to default parameters after plotting
+par(mfrow = c(1, 1), mar = c(5, 4, 4, 2) + 0.1)
+```
+
+Notable information we gained from this analysis was that the most frequent engine type is ohc, that the most frequent car producing company is Toyota, and the most common cylinder number is four.
+
+---
+
+For gaining useful insights for our regression task, we decided to plot box-plots to visualize the distribution of car prices across different car companies. In the graphs below, the x-axis denotes the various categorical variables, and the y-axis represents the car prices.
+
+```{r, echo = FALSE, warning=FALSE, message=FALSE}
+# Determine the number of plots to arrange
+num_variables <- length(categoricalVariables)
+
+# Set up the layout with smaller text size
+par(mfrow = c(2, 2),    # Adjust the layout as needed
+    mar = c(4, 4, 2, 1),
+    cex.axis = 0.7,     # Smaller axis text
+    cex.lab = 0.8)      # Smaller axis labels
+
+for (tempVar in categoricalVariables[categoricalVariables != "carCompany"]){
+  boxplot(cleaned_car_prices$price ~ cleaned_car_prices[,tempVar], 
+          col = "lightblue", 
+          xlab = tempVar, 
+          ylab = "price", 
+          tick = FALSE, 
+          las = 2)
+}
+
+# Reset to default parameters after plotting
+par(mfrow = c(1, 1), mar = c(5, 4, 4, 2) + 0.1, cex.axis = 1, cex.lab = 1, cex.main = 1)
+
+boxplot(cleaned_car_prices$price ~ cleaned_car_prices[,"carCompany"], 
+          col = "lightblue", 
+          xlab = "carCompany", 
+          ylab = "price", 
+          tick = FALSE, 
+          las = 2)
+```
+
+From the visualizations above, some notable insights that can be gained are:
+
+The box plot showing car prices by engine location reveals that cars with engines in the rear are generally more expensive, while those with engines in the front show a wider range of higher prices. The 'rear' engine location is characterized by a higher middle value and a more compact spread of prices, indicating that rear-engine cars usually come at a higher cost.
+
+Furthermore, the box plots for engine type, the number of cylinders, and fuel system provide valuable insights, as they show varying price levels associated with each characteristic. Different engine types, cylindernumber, and fuel systems correspond to different price brackets.
+
+The box plot showing car prices across various brands reveals distinct price ranges, with Porsche, BMW, Jaguar, and Buick occupying the higher end, and brands like Plymouth, Mazda, Nissan, Dodge, and Chevrolet offering more budget-friendly options. This differentiation signifies a targeting of diverse market segments, from luxury to economy, by different manufacturers.
+
+---
+
+I was also interested to look at the average price of each Car Company, by creating a bar plot and ordering them from the most economical to the most expensive: 
+
+```{r, echo = FALSE, warning=FALSE, message=FALSE}
+# Load necessary libraries
+library(dplyr)
+library(ggplot2)
+
+# Grouped analysis for car company
+avg_price_by_company <- cleaned_car_prices %>%
+  group_by(carCompany) %>%
+  summarise(Average_Price = mean(price, na.rm = TRUE))
+
+# Creating a bar plot for car company
+ggplot(avg_price_by_company, aes(x = reorder(carCompany, Average_Price), y = Average_Price, fill = carCompany)) +
+  geom_bar(stat = "identity") +
+  labs(title = "Average Price by Car Company", x = "Car Company", y = "Average Price") +
+  theme_minimal() +
+  scale_fill_viridis_d() + # Using a palette that can handle many unique values
+  theme(axis.text.x = element_text(angle = 90, hjust = 1), # Rotate x labels for readability
+        legend.position = "none")
+```
+
+Even though the comapany with the highest price was Buick (as we saw from the previous boxlots), the carcompany with the highest average price is Jaguar(close to 35000).
+
+
+### Feature Engineering
+I decided to create a new feature that is relevant for predicting car prices, combining citympg and highwaympg into a single measure of efficiency, by calculating a weighted average of these two variables. I chose a weighted average because the frequency of driving environments (city vs. highway) can vary for users. Since city driving is often more common and involves more stopping and starting, which consumes more fuel, it's weighted more heavily in the  efficiency calculation.
+
+```{r, echo = TRUE, warning=FALSE, message=FALSE}
+# Assuming city driving is more frequent than highway driving,
+# weighting citympg more heavily than highwaympg.
+# Here, I'm using a 60-40 split as an example.
+
+cleaned_car_prices$efficiency = (0.6 * cleaned_car_prices$citympg) + (0.4 * cleaned_car_prices$highwaympg)
+fact_car_prices$efficiency = (0.6 * fact_car_prices$citympg) + (0.4 * fact_car_prices$highwaympg)
+numericalVariables =  c(numericalVariables, "efficiency")
+
+# This creates a new column 'efficiency' in the dataframe.
+
+```
+
+---
+
+To visualize the relationship between efficiency and price we used a Scatterplot and also performed a Correlation Analysis to check the linear correlation between them.
+
+```{r, echo = FALSE, warning=FALSE, message=FALSE}
+library(ggplot2)
+
+ggplot(cleaned_car_prices, aes(x = efficiency, y = price)) +
+  geom_point(alpha = 0.5) +  # Plot the points with some transparency
+  geom_smooth(method = "lm", color = "blue", se = FALSE) +  # Add a blue linear trend line without confidence interval
+  labs(title = "Scatter Plot of Car Efficiency vs. Price",
+       x = "Efficiency (Weighted Average of citympg and highwaympg)",
+       y = "Price") +
+  theme_minimal()
+
+# Correlation analysis 
+cor(cleaned_car_prices$efficiency, cleaned_car_prices$price, use = "complete.obs")
+
+
+```
+Scatterplot - The distribution of points suggests that as efficiency increases, the price of cars tends to decrease. This inverse relationship is depicted by the concentration of points; higher efficiency values are generally associated with lower prices, and vice versa which could suggest that higher-priced cars focus more on performance and luxury rather than fuel economy.
+
+Correlation analysis - The correlation coefficient of approximately -0.695 indicates a moderate to strong negative linear relationship between car efficiency and price. This means that, generally, cars with higher fuel efficiency (more miles per gallon) are priced lower than less efficient cars. This let's us understand that expensive cars, are not as efficient, which can be related to a lot of factors such as fueltype, enginesize etc. 
+
+---
+
+Lastly I decided to analyze the relationship between car efficiency and price, differentiated by fuel type (diesel and gas) since fuel an important factor in a car's efficiency. By comparing diesel and gas vehicles directly, we can understand how fuel type may affect efficiency and pricing trends.
+
+```{r, echo = FALSE, warning=FALSE, message=FALSE}
+ggplot(cleaned_car_prices, aes(x = efficiency, y = price, color = fueltype)) +
+  geom_point(alpha = 0.5) +
+  labs(title = "Efficiency vs. Price by Fuel Type",
+       x = "Efficiency",
+       y = "Price") +
+  theme_minimal()
+
+```
+
+Price Trends: For both types of fuel, the trend seems to be that cars with higher efficiency tend to have lower prices. However, this trend appears less pronounced for diesel cars, possibly due to their lower numbers in the dataset.
+
+High Price Cluster: There is a small cluster of high-priced cars with moderate efficiency, which could be premium models where factors other than efficiency drive the price.
+Fuel Type and Price: Diesel cars appear to have a slightly higher price range at higher efficiencies compared to gas cars. This could suggest that within the efficient vehicle category, diesel models are priced at a premium.
+
+### Normalization, Scaling And Outlier Removal
+
+To uderstand if our data is skewed, we plotted box-plots of the numerical variables.
+
+```{r, echo = FALSE, warning=FALSE, message=FALSE}
+# BOX-PLOTS TO UNDERSTAND IF THE DATA IS SKEWED
+library(ggplot2)
+library(patchwork)
+
+# Create a list to store the boxplot plots
+boxplot_plots_list <- list()
+
+# Loop through each variable to generate boxplots
+for (tempVar in numericalVariables) {
+  p <- ggplot(cleaned_car_prices, aes_string(y = tempVar)) +
+    geom_boxplot(fill = "cornflowerblue") +
+    labs(title = paste("Boxplot of", tempVar), y = tempVar) +
+    theme_minimal()
+  
+  # Add the plot to the list
+  boxplot_plots_list[[tempVar]] <- p
+  
+  # If the list has 4 boxplots, arrange them into a figure
+  if (length(boxplot_plots_list) == 4) {
+    figure <- wrap_plots(boxplot_plots_list, ncol = 2)
+    print(figure)
+    
+    # Clear the list for the next figure
+    boxplot_plots_list <- list()
+  }
+}
+
+# Check if there are any remaining boxplots in the list
+if (length(boxplot_plots_list) > 0) {
+  figure <- wrap_plots(boxplot_plots_list, ncol = 2)
+  print(figure)
+}
+
+```
+
+As we saw during our EDA, there were some outliers included in our dataset but I don't think they will interfere with quality of our models so i decided not to remove them since our dataset is already small.
+
+---
+
+Now we perform normalization and scaling.
+
+### Normalization
+```{r, echo = TRUE, warning=FALSE, message=FALSE}
+normalize_minmax <- function(x) {
+  return ((x - min(x, na.rm = TRUE)) / (max(x, na.rm = TRUE) - min(x, na.rm = TRUE)))
+}
+# Initialize a new dataframe for the normalized variables with the same number of rows as cleaned_car_prices
+normalized_car_prices <- data.frame(matrix(ncol = length(numericalVariables), nrow = nrow(cleaned_car_prices)))
+names(normalized_car_prices) <- numericalVariables
+
+# Apply normalization to each numerical variable and replace the column in the new dataframe
+for (tempVar in numericalVariables) {
+  normalized_value <- normalize_minmax(cleaned_car_prices[[tempVar]])
+  normalized_car_prices[[tempVar]] <- normalized_value
+}
+
+# Copy the categorical variables from the original dataframe to the new dataframe
+categoricalVariables <- setdiff(names(cleaned_car_prices), numericalVariables)
+normalized_car_prices[categoricalVariables] <- cleaned_car_prices[categoricalVariables]
+
+# Now normalized_car_prices contains all the normalized numerical data
+# and the original categorical data
+
+```
+
+### Scaling
+```{r, echo = TRUE, warning=FALSE, message=FALSE}
+# Function to apply Z-score standardization
+scale_z <- function(x) {
+  return ((x - mean(x, na.rm = TRUE)) / sd(x, na.rm = TRUE))
+}
+
+# Initialize a new dataframe for the scaled variables
+scaled_car_prices <- data.frame(matrix(ncol = length(numericalVariables), nrow = nrow(fact_car_prices)))
+names(scaled_car_prices) <- numericalVariables
+
+# Apply scaling to each numerical variable and replace the column in the new dataframe
+for (tempVar in numericalVariables) {
+  scaled_value <- scale_z(fact_car_prices[[tempVar]])
+  scaled_car_prices[[tempVar]] <- scaled_value
+}
+
+# Copy the categorical variables from the original dataframe to the new dataframe
+scaled_car_prices[categoricalVariables] <- fact_car_prices[categoricalVariables]
+
+# Now scaled_car_prices contains all the scaled numerical data and the original categorical data
+
+```
+
+---
+
+To visually demonstrate the effects of normalization, and scaling on the dataset, I  created a series of plots for a few selected variables. These plots will compare the original, normalized, and scaled distributions. 
+
+```{r, echo = FALSE, warning=FALSE, message=FALSE}
+library(ggplot2)
+
+# Assuming 'original_car_prices' is your original dataframe before any preprocessing
+# And assuming 'wheelbase' and 'carlength' are the variables of interest
+
+# Plot for Original Data
+p1 <- ggplot(cleaned_car_prices, aes(x = wheelbase)) +
+    geom_density(fill = "blue", alpha = 0.5) +
+    ggtitle("Original Data - Wheelbase") +
+    theme_minimal()
+
+
+
+# Plot after Normalization
+p3 <- ggplot(normalized_car_prices, aes(x = wheelbase)) +
+    geom_density(fill = "red", alpha = 0.5) +
+    ggtitle("After Normalization - Wheelbase") +
+    theme_minimal()
+
+# Plot after Scaling
+p4 <- ggplot(scaled_car_prices, aes(x = wheelbase)) +
+    geom_density(fill = "orange", alpha = 0.5) +
+    ggtitle("After Scaling - Wheelbase") +
+    theme_minimal()
+
+# Display the plots
+gridExtra::grid.arrange(p1, p3, p4, nrow = 2)
+
+```
+
+As we can see the normalized data is within the [0,1] range, and the scaled data is centered around 0.
+
+## Task 1: Regression
+
+My aim is to predict the price of the new-designed car according to its specifics, to do so, i'm going to build a predictive model for the sale prices of cars based on their characteristics. We will reach this goal by trying different approaches,  starting with some lower-dimensional models and then moving to more complex ones.
+
+### Lower dimensional linear models
+
+I trained single linear regression models for different variables of the data-set in order to investigate correlation and gain insights. I considered:
+
+- the numerical ones that have a correlation with price \> \|0.75\|: enginesize, curbweight, horsepower, carwidth.
+- the engineered variables: efficiency
+- the categorical variables that resulted to be more interesting from the box-plots analysis: carCompany, enginelocation, enginetype, cylindernumber, and fuelsystem.
+
+```{r, echo = TRUE, warning=FALSE, message=FALSE}
+
+# Linear regression with 'enginesize'
+slr_enginesize <- lm(price ~ enginesize, data = scaled_car_prices)
+#summary(slr_enginesize)
+
+# Linear regression with 'curbweight'
+slr_curbweight <- lm(price ~ curbweight, data = scaled_car_prices)
+
+
+# Linear regression with 'horsepower'
+slr_horsepower <- lm(price ~ horsepower, data = scaled_car_prices)
+
+
+# Linear regression with 'carwidth'
+slr_carwidth <- lm(price ~ carwidth, data = scaled_car_prices)
+
+
+# Linear regression with 'efficiency'
+slr_efficiency <- lm(price ~ efficiency, data = scaled_car_prices)
+
+```
+
+In the context of linear regression, a small p-value suggests that there is a statistically significant relationship between that variable and the response variable (in our case, the car price).
+
+```{r, echo = FALSE, warning=FALSE, message=FALSE}
+# One-hot encoding and linear regression for 'carCompany'
+slr_cat_carCompany <- model.matrix(~ carCompany - 1, data = scaled_car_prices) # -1 to omit intercept
+slr_cat_carCompany <- lm(price ~ ., data = cbind(slr_cat_carCompany, scaled_car_prices["price"]))
+#summary(slr_cat_carCompany)
+
+# One-hot encoding and linear regression for 'enginelocation'
+slr_cat_enginelocation <- model.matrix(~ enginelocation - 1, data = scaled_car_prices) # -1 to omit intercept
+slr_cat_enginelocation <- lm(price ~ ., data = cbind(slr_cat_enginelocation, scaled_car_prices["price"]))
+
+
+# One-hot encoding and linear regression for 'enginetype'
+slr_cat_enginetype <- model.matrix(~ enginetype - 1, data = scaled_car_prices) # -1 to omit intercept
+slr_cat_enginetype <- lm(price ~ ., data = cbind(slr_cat_enginetype, scaled_car_prices["price"]))
+
+
+# One-hot encoding and linear regression for 'cylindernumber'
+slr_cat_cylindernumber <- model.matrix(~ cylindernumber - 1, data = scaled_car_prices) # -1 to omit intercept
+slr_cat_cylindernumber <- lm(price ~ ., data = cbind(slr_cat_cylindernumber, scaled_car_prices["price"]))
+
+
+# One-hot encoding and linear regression for 'fuelsystem'
+slr_cat_fuelsystem <- model.matrix(~ fuelsystem - 1, data = scaled_car_prices) # -1 to omit intercept
+slr_cat_fuelsystem <- lm(price ~ ., data = cbind(slr_cat_fuelsystem, scaled_car_prices["price"]))
+
+```
+
+### Data split into train and test
+
+We split the data-set randomly into train (containing 80% of observations) and test sets (containing 20% of observations). This approach of splitting the data allows for independent evaluation of the model's performance on unseen data: the training data is used to fit and optimize the model, while the test data serves as an unbiased measure of the model's performance.
+
+```{r, echo = TRUE, warning=FALSE, message=FALSE}
+set.seed(31)
+# Calculate the number of rows to sample for the training set
+train_size <- floor(0.80 * nrow(scaled_car_prices))
+
+# Sample row indices for the training set
+train_indices <- sample(seq_len(nrow(scaled_car_prices)), size = train_size)
+
+# Create training and test sets
+train_set <- scaled_car_prices[train_indices, ]
+test_set <- scaled_car_prices[-train_indices, ]
+
+```
+
+### Initial selection of regressors and creation of performance dataframe 
+
+We created a list of the regressors that will be employed in the following models. We are using all the provided variables except from:
+
+- car_ID and CarName, since it does not make sense to use them for forecasting price
+- highwaympg and citympg to avoid redundacy, and used instead the engineerd feature which capture similar information regarding fuel efficiency.
+
+```{r, echo = TRUE, warning=FALSE, message=FALSE}
+# List of all column names excluding the non-regressors
+regressors <- setdiff(names(scaled_car_prices), c('car_ID', 'CarName', 'highwaympg', 'citympg', 'price'))
+```
+
+I decided to create also a data-frame to keep track of the best models we created and theirs characteristics.
+
+```{r, echo = TRUE, warning=FALSE, message=FALSE}
+# CREATING A DATAFRAME TO KEEP TRACK OF THE PERFORMANCE OF THE MODELS WE WILL IMPLEMENT
+
+bestPerfDFCols = c("Record" , # In what is the best model
+                   "ModelName", # Name given to the model
+                   "RegressorsNum", # Number of regressors used
+                   "AIC", # AIC score (for linear models only)
+                   "BIC", # BIC score (for linear models only)
+                   "lambda", # Value of lambda (for elastic network only)
+                   "alpha", # Number of alpha (for elastic network only)
+                   "TreesNum", # Number of trees used (for random forests only)
+                   "LayersNum", # Number of layers used (for neural networks only)
+                   "MSEtrain", # Value of mean square error in train data-set
+                   "RMSEtrain", # Value of root mean square error in train data-set
+                   "MSEtest", #  Value of mean square error in test data-set
+                   "RMSEtest", #  Value of root mean square error in test data-set
+                   "R2", # Value of R^2
+                   "Model") # Actual model
+
+best_perf_df = data.frame(matrix(nrow = 0, ncol = length(bestPerfDFCols))) 
+colnames(best_perf_df) = bestPerfDFCols
+```
+
+---
+
+### AIC and BIC Stepwise Selection
+
+I constructed multiple linear regression models using step-selection based on the Akaike Information Criterion (AIC) and the Bayesian Information Criterion (BIC); we provided the different functions: forward, backward, and forward/backward (both), for both AIC and BIC, with the entire set of variables (including numerical, engineered, and categorical; excluding the Car ID and Car Name), allowing them to autonomously determine the optimal predictors to retain.
+
+```{r, echo = TRUE, warning=FALSE, message=FALSE}
+# AIC AND BIC STEPWISE SELECTION
+
+AICBICModelsList <- list() ## Start an empty list to store models selected by AIC and BIC
+# define intercept-only model as the simplest model (baseline)
+intercept_only <- lm(price ~ 1, data = train_set[,c("price", regressors)]) 
+# define model with all predictors
+all <- lm(price ~ ., data = train_set[,c("price", regressors)]) 
+
+# AIC
+# AIC forward
+AIC_forward <- step(intercept_only,
+                    direction = "forward", # direction of stepwise procedure
+                    scope = formula(all),  # scope of the variables to consider
+                    trace = 0) # Set trace to 0 to not print each step's details
+
+# Create a new row for the results dataframe with model details and performance metrics
+new_row <- data.frame(Record = NA,
+                      ModelName = "AIC forward selection",
+                      RegressorsNum = length(coef(AIC_forward)) - 1,
+                      AIC = AIC(AIC_forward), 
+                      BIC = BIC(AIC_forward),
+                      lambda = NA, alpha = NA, TreesNum = NA, LayersNum = NA,
+                      MSEtrain = round(mse(AIC_forward, train_set), 3),
+                      RMSEtrain = round(rmse(AIC_forward, train_set), 3),
+                      MSEtest = round(mse(AIC_forward, test_set), 3),
+                      RMSEtest = round(rmse(AIC_forward, test_set), 3),
+                      R2 = summary(AIC_forward)$r.squared,
+                      Model = NA
+                      )
+best_perf_df <- rbind(best_perf_df, new_row) #Add the new row to the best performance dataframe
+AICBICModelsList[[length(AICBICModelsList)+1]] <- serialize(AIC_forward,NULL) #Serialize the model and store it in the list of models
+
+
+# AIC backward
+AIC_backward<- step(all,
+                    direction = "backward",
+                    scope = formula(all),
+                    trace = 0)
+
+test_set$fuelsystem <- factor(test_set$fuelsystem, levels = levels(train_set$fuelsystem))
+
+
+new_row <- data.frame(Record = NA,
+                      ModelName = "AIC backward selection",
+                      RegressorsNum = length(coef(AIC_forward)) - 1,
+                      AIC = AIC(AIC_backward),
+                      BIC = BIC(AIC_backward),
+                      lambda = NA, alpha = NA, TreesNum = NA, LayersNum = NA,
+                      MSEtrain = round(mse(AIC_backward, train_set), 3),
+                      RMSEtrain = round(rmse(AIC_backward, train_set), 3),
+                      MSEtest = round(mse(AIC_backward, test_set), 3),
+                      RMSEtest = round(rmse(AIC_backward, test_set), 3),
+                      R2 = summary(AIC_backward)$r.squared,
+                      Model = NA
+                      )
+best_perf_df <- rbind(best_perf_df, new_row)
+AICBICModelsList[[length(AICBICModelsList)+1]] <- serialize(AIC_backward,NULL)
+
+
+# AIC forward/backward
+AIC_both <- step(intercept_only,
+                 direction = "both",
+                 scope = formula(all),
+                 trace = 0) 
+
+
+new_row <- data.frame(Record = NA,
+                      ModelName = "AIC forward/backward selection",
+                      RegressorsNum = length(coef(AIC_both)) - 1,
+                      AIC = AIC(AIC_both),
+                      BIC = BIC(AIC_both),
+                      lambda = NA, alpha = NA, TreesNum = NA, LayersNum = NA,
+                      MSEtrain = round(mse(AIC_both, train_set), 3),
+                      RMSEtrain = round(rmse(AIC_both, train_set), 3),
+                      MSEtest = round(mse(AIC_both, test_set), 3),
+                      RMSEtest = round(rmse(AIC_both, test_set), 3),
+                      R2 = summary(AIC_both)$r.squared,
+                      Model = NA
+                      )
+best_perf_df <- rbind(best_perf_df, new_row)
+AICBICModelsList[[length(AICBICModelsList)+1]] <- serialize(AIC_both,NULL)
+
+
+# BIC
+# BIC forward
+BIC_forward <- step(intercept_only,
+                    direction = "forward",
+                    scope = formula(all),
+                    trace = 0,
+                    k = log(nrow(train_set)))
+
+new_row <- data.frame(Record = NA,
+                      ModelName = "BIC forward selection",
+                      RegressorsNum = length(coef(BIC_forward)) - 1,
+                      AIC = AIC(BIC_forward),
+                      BIC = BIC(BIC_forward),
+                      lambda = NA, alpha = NA, TreesNum = NA, LayersNum = NA,
+                      MSEtrain = round(mse(BIC_forward, train_set), 3),
+                      RMSEtrain = round(rmse(BIC_forward, train_set), 3),
+                      MSEtest = round(mse(BIC_forward, test_set), 3),
+                      RMSEtest = round(rmse(BIC_forward, test_set), 3),
+                      R2 = summary(BIC_forward)$r.squared,
+                      Model = NA
+                      )
+best_perf_df <- rbind(best_perf_df, new_row)
+AICBICModelsList[[length(AICBICModelsList)+1]] <- serialize(BIC_forward,NULL)
+
+# BIC backward
+BIC_backward <- step(all,
+                     direction = "backward",
+                     scope = formula(all),
+                     trace = 0,
+                     k = log(nrow(train_set)))
+
+new_row <- data.frame(Record = NA,
+                      ModelName = "BIC backward selection",
+                      RegressorsNum = length(coef(BIC_backward)) - 1,
+                      AIC = AIC(BIC_backward),
+                      BIC = BIC(BIC_backward),
+                      lambda = NA, alpha = NA, TreesNum = NA, LayersNum = NA,
+                      MSEtrain = round(mse(BIC_backward, train_set), 3),
+                      RMSEtrain = round(rmse(BIC_backward, train_set), 3),
+                      MSEtest = round(mse(BIC_backward, test_set), 3),
+                      RMSEtest = round(rmse(BIC_backward, test_set), 3),
+                      R2 = summary(BIC_backward)$r.squared,
+                      Model = NA
+                      )
+best_perf_df <- rbind(best_perf_df, new_row)
+AICBICModelsList[[length(AICBICModelsList)+1]] <- serialize(BIC_backward,NULL)
+
+# BIC forward/backward
+BIC_both <- step(intercept_only,
+                 direction = "both",
+                 scope = formula(all),
+                 trace = 0,
+                 k = log(nrow(train_set)))
+
+new_row <- data.frame(Record = NA,
+                      ModelName = "BIC forward/backward selection",
+                      RegressorsNum = length(coef(BIC_both)) - 1,
+                      AIC = AIC(BIC_both),
+                      BIC = BIC(BIC_both),
+                      lambda = NA, alpha = NA, TreesNum = NA, LayersNum = NA,
+                      MSEtrain = round(mse(BIC_both, train_set), 3),
+                      RMSEtrain = round(rmse(BIC_both, train_set), 3),
+                      MSEtest = round(mse(BIC_both, test_set), 3),
+                      RMSEtest = round(rmse(BIC_both, test_set), 3),
+                      R2 = summary(BIC_both)$r.squared,
+                      Model = NA
+                      )
+best_perf_df <- rbind(best_perf_df, new_row)
+AICBICModelsList[[length(AICBICModelsList)+1]] <- serialize(BIC_both,NULL)
+
+length(AICBICModelsList) <- nrow(best_perf_df) #sets the length of the AICBICModelsList to be the number of rows in the performance dataframe
+best_perf_df$Model <- AICBICModelsList #attaches the list of serialized models to the dataframe.
+```
+
+-AIC Models: The AIC forward and forward/backward selection models have identical performance metrics, showing good balance in terms of model fit and predictive accuracy. The AIC backward selection model, despite having the lowest AIC value (5.70691), shows slightly worse performance in terms of RMSEtest (0.284). 
+
+-BIC Models: The BIC forward and forward/backward selection models have identical metrics and outperform the BIC backward selection in terms of MSEtest(0.071) and RMSEtest(0.267). This suggests better predictive accuracy on test data.AIC models generally exhibit a higher R2 (0.97), indicating they explain a larger proportion of the variance in the target variable. However, their RMSEtest values are slightly higher compared to the BIC models, indicating less accuracy in predictions.
+
+Considering the specific need for accurate predictions of the price of newly designed cars, the BIC Forward Selection and BIC Forward/Backward Selection models are more suitable. They strike a good balance between predictive accuracy (lower RMSEtest) and the ability to explain variance in car prices (R2). While their R2 is slightly lower than the AIC models, their superior performance in RMSEtest makes them more suitable for predictive tasks.
+
+---
+
+### Elastic Net
+
+We proceeded by implementing penalized approach algorithms to find models with good generalization capabilities. We will implement the function that performs Elastic Net regression.Elastic Net regression is a hybrid approach that blends both penalizations of the lasso and ridge methods, for this reason, will tune the alpha parameter (where alpha = 0 corresponds to ridge regression and alpha = 1 corresponds to lasso regression), choosing an alpha value between 0 and 1 to optimize the Elastic Net, to find a good lambda hyper-parameter.
+
+```{r, echo = TRUE, warning=FALSE, message=FALSE}
+# ELASTIC NET
+
+# Initialize an empty data frame to store the performance metrics for Elastic Net models
+Elastic_perf_df = data.frame(matrix(nrow = 0, ncol = length(bestPerfDFCols))) 
+colnames(best_perf_df) = bestPerfDFCols
+ENModelsList <- list() # Start an empty list to store Elastic Net models
+
+# Loop through a sequence of alpha values from 0 to 1 in increments of 0.05
+for (alpha in seq(0, 1, by=0.05)) {
+  
+  #perform k-fold cross-validation to find optimal lambda value
+  tempCVModel <- cv.glmnet(data.matrix(train_set[,regressors]),
+                           train_set$price,
+                           alpha = alpha)
+  
+  #find coefficients of best model with optimal lambda value (that minimizes test MSE)
+  tempModel <- glmnet(data.matrix(train_set[,regressors]),
+                      train_set$price,
+                      alpha = alpha,
+                      lambda = tempCVModel$lambda.min)
+  
+  # Serialize the model and add it to the list of Elastic Net models
+  ENModelsList[[length(ENModelsList)+1]] <- serialize(tempModel,NULL)
+  
+  # Calculate the Mean Squared Error (MSE) for the training set
+  tempMSEtrain = sum((train_set$price - predict(tempModel, newx = data.matrix(train_set[,regressors])))^2) / nrow(train_set)
+  
+  # Calculate the Mean Squared Error (MSE) for the test set
+  tempMSEtest = sum((test_set$price - predict(tempModel, newx = data.matrix(test_set[,regressors])))^2) / nrow(test_set)
+  
+  # Predict prices using the model and calculate the R-squared value for the training set
+  predicted <- predict(tempModel, newx = data.matrix(train_set[,regressors]), s = "lambda.min", type = "response")
+  tempR2 <- (cor(predicted, train_set$price))^2 
+  
+  # Add a new row to the performance data frame with the calculated metrics
+  Elastic_perf_df <- rbind(Elastic_perf_df,
+                      data.frame(Record = NA,
+                                 ModelName = "EL",
+                                 RegressorsNum = NA,
+                                 AIC = NA, BIC = NA,
+                                 lambda = tempCVModel$lambda.min,
+                                 alpha = alpha,
+                                 TreesNum = NA, LayersNum = NA,
+                                 MSEtrain = round(tempMSEtrain, 3),
+                                 RMSEtrain = round(sqrt(tempMSEtrain), 3),
+                                 MSEtest = round(tempMSEtest, 3),
+                                 RMSEtest = round(sqrt(tempMSEtrain), 3),
+                                 R2 = tempR2,
+                                 Model = NA))
+}
+
+# Store the list of Elastic Net models in the performance data frame
+Elastic_perf_df$Model <- ENModelsList
+
+# Identify the best Elastic Net model based on the lowest MSE on the training set
+newRow = Elastic_perf_df[which.min(Elastic_perf_df$MSEtrain),]
+newRow$Record <- "Elastic Network lower MSE error on train"
+# Add the best model's metrics to the overall best performance data frame
+best_perf_df <- rbind(best_perf_df, newRow)
+
+# Identify the best Elastic Net model based on the lowest MSE on the test set
+newRow = Elastic_perf_df[which.min(Elastic_perf_df$MSEtest),]
+newRow$Record <- "Elastic Network lower MSE error on test"
+best_perf_df <- rbind(best_perf_df, newRow)
+```
+
+The results of Elastic Net are derived from varying the alpha value, which determines the mix between Lasso and Ridge regression, and identifying the optimal lambda for each alpha.
+
+Model Selection Based on Alpha:
+
+-Alpha = 0.60 & 0.80: These models, with higher alpha values, lean more towards Lasso regression. They show similar performance with slightly better R2 and lower MSE on both training and testing sets compared to the models with lower alpha values.
+
+-Alpha = 0.05 & 0.20: These models, with lower alpha values, are more Ridge-like. They exhibit a bit higher MSE on the training set but lower MSE on the testing set, which may indicate better generalization.
+
+Performance Metrics:
+
+The Elastic Net model with alpha 0.05 shows the lowest MSEtest (0.076), suggesting better predictive accuracy on the test set while the model with alpha 0.60 has the highest R2 (0.9036), suggesting better explanatory power.
+
+Best Model for Prediction:
+
+-Elastic Network with Alpha 0.05 appears to be the best model for predicting car prices based the criteria. It offers a good balance between predictive accuracy (low MSEtest) and model explanation (high R2), which is crucial for reliable predictions.
+
+---
+
+### Random forests
+
+I kept going with the research of the best model to forecast car prices basing on car characteristics; this time I  employed a Random Forest algorithm.
+
+I selected a list of regressors to include in the Random Forest model, by choosing:
+
+- the most correlated quantitative regressors that were not highly correlated with each other or used in feature engineering;
+- the categorical variables that showed strong relationships with the target variable, following the same criteria mentioned in the Lower-dimensional linear models section;
+- the engineered variable.
+
+```{r, echo = TRUE, warning=FALSE, message=FALSE}
+RFregressors = c("enginesize", "horsepower", "curbweight", "efficiency", "carCompany", "enginelocation", "enginetype", "cylindernumber", "fuelsystem")
+```
+
+I used an algorithm that generates and compares the possible Random Forest models considering all the combinations of aforementioned regressors with a maximum of 30 trees. As for the previous methods, I saved in the best performance data-frame the best performing models with the lowest MSE on both training and testing datasets. This step is crucial to identify models that not only fit the training data well but also generalize effectively to unseen data.
+
+```{r, echo = TRUE, warning=FALSE, message=FALSE}
+# ALL RANDOM FORESTS (max 20 trees)
+RF_perf_df = data.frame()  # Create an empty data frame to store Random Forest models' performance metrics
+RFModelsList <- list()  # Initialize an empty list to store the serialized Random Forest models
+
+# Loop through all possible numbers of variables to include in the model
+for (tempVarNum in c(1:length(RFregressors))){
+  # Generate all combinations of variables for the current number of variables
+  tempVarCombinations <- (combn(RFregressors, tempVarNum, fun=NULL, simplify=FALSE))
+  
+  # Loop through each combination of variables
+  for (tempVarComb in tempVarCombinations){
+    
+    # Loop through a range of tree numbers from 1 to 20
+    for (tempTreeNum in c(1:20)){
+      # Fit a Random Forest model with the current combination of variables and number of trees
+      tempModel = randomForest(formula = as.formula(paste("price ~ ",
+                                                          paste(unlist(tempVarComb),
+                                                                sep ="",
+                                                                collapse = " + "),
+                                                          sep = "")),
+      data = train_set, ntree = tempTreeNum, keep.forest = TRUE, importance = TRUE)
+      # Serialize the model and add it to the list
+      RFModelsList[[length(RFModelsList)+1]] <- serialize(tempModel,NULL)
+      
+      # Calculate Total Sum of Squares (TSS) for the test set
+      tempTSS <- sum((mean(test_set$price) - predict(tempModel, test_set))^2)
+      # Calculate Residual Sum of Squares (RSS) for the test set
+      tempRSS <- sum((test_set$price - predict(tempModel, test_set))^2)
+      # Calculate the coefficient of determination (R^2) for the test set
+      tempR2 <- 1 - (tempRSS / tempTSS)
+      
+      # Add a new row to the performance data frame with the calculated metrics for the model
+      RF_perf_df <- rbind(RF_perf_df,
+                          data.frame(Record = NA,
+                                     ModelName = paste("RF: ",
+                                                       paste(unlist(tempVarComb),
+                                                             sep = "",
+                                                             collapse = ", "),
+                                                       sep = ""),
+                                     RegressorsNum = tempVarNum,
+                                     AIC = NA, BIC = NA, lambda = NA, alpha = NA,
+                                     TreesNum = tempTreeNum,
+                                     LayersNum = NA,
+                                     MSEtrain = round(mse(tempModel, train_set), 3),
+                                     RMSEtrain = round(rmse(tempModel, train_set), 3),
+                                     MSEtest = round(mse(tempModel, test_set), 3),
+                                     RMSEtest = round(rmse(tempModel, test_set), 3),
+                                     R2 = tempR2,
+                                     Model = NA))
+    }
+  }
+}
+
+# Store the list of serialized Random Forest models in the performance data frame
+RF_perf_df$Model <- RFModelsList
+
+# Identify and store the best Random Forest model based on the lowest MSE on the training set
+newRow = RF_perf_df[which.min(RF_perf_df$MSEtrain),]
+newRow$Record <- "Random Forest with lowest MSE on train"
+best_perf_df <- rbind(best_perf_df, newRow)
+
+# Identify and store the best Random Forest model based on the lowest MSE on the test set
+newRow = RF_perf_df[which.min(RF_perf_df$MSEtest),]
+newRow$Record <- "Random Forest with lowest MSE on test"
+best_perf_df <- rbind(best_perf_df, newRow)
+
+```
+
+Model 4 (Random Forest with Lower MSE Error on Test) stands out as the best choice for predicting car prices. It not only shows the best performance on the test data with MSEtest: 0.017, RMSEtest: 0.132(indicative of good generalizability) but also has the highest R2 ( 0.9567), meaning it explains a large portion of the variance in car prices. Also focusing on model complexity it uses more variables (6) but fewer trees (3). This suggests that Model 4 might be capturing more nuanced relationships with a simpler forest structure.
+
+### Neural networks
+
+In this section, I employed a neural network model to address the predictive modeling task.
+
+```{r, echo = FALSE, warning=FALSE, message=FALSE}
+# Preparing data for Neural Network (NN) model
+
+# Combine scaled numerical variables with encoded categorical variables
+NN_car_prices <- cbind(scaled_car_prices,
+                       select(encoded_car_prices,
+                              -c(numericalVariables[numericalVariables != "efficiency"],
+                                 "price", "car_ID", "CarName", "highwaympg", "citympg")))
+# From the combined data, remove all original categorical variables that have been encoded
+NN_car_prices <- subset(NN_car_prices, select = -which(names(NN_car_prices) %in% categoricalVariables))
+
+# Extract column names for use as regressors in the NN model
+NNregressors <- colnames(NN_car_prices)
+# Split the data into training and test sets using previously defined train_indices
+NN_train_set <- NN_car_prices[train_indices, ]
+NN_test_set <- NN_car_prices[-train_indices, ]
+
+# Calculate the mean and standard deviation of the original price for later use in de-normalizing predictions
+mean_price <- mean(fact_car_prices$price)  # Mean of original price
+sd_price <- sd(fact_car_prices$price)     # Standard deviation of original price
+
+```
+
+
+```{r, echo = TRUE, warning=FALSE, message=FALSE}
+# IMPLEMENTATION OF NEURAL NETWORKS
+
+NN_perf_df = data.frame() # Create an empty data frame to store Neural Network models' performance metrics
+NNModelsList <- list() # Initialize an empty list to store serialized Neural Network models
+maxLayers = 2 # Define the maximum number of layers in the neural network
+maxNodesperLayer = 18 # Define the maximum number of nodes per layer
+
+# Loop through the number of layers from 1 to maxLayers
+for (tempLayersNum in c(1:maxLayers)){
+  # Generate all possible combinations of node counts for each layer configuration
+  tempHiddenCombinations <- permutations(n=maxNodesperLayer,r=maxLayers,v=c(1:maxNodesperLayer),repeats.allowed=T)
+  
+   # Loop through each combination of nodes in the hidden layers
+  for (tempHidden in tempHiddenCombinations){
+    # Fit a Neural Network model with the current combination of hidden nodes
+    tempModel <- neuralnet(formula = as.formula(paste("price ~ ",
+                                                          paste(unlist(NNregressors),
+                                                                sep ="",
+                                                                collapse = " + "),
+                                                          sep = "")),
+                           data = NN_train_set, # Training data
+                           hidden = tempHidden, # Hidden layers configuration
+                           linear.output = TRUE) # Linear output for regression
+    
+    # Serialize the model and add it to the list
+    NNModelsList[[length(NNModelsList)+1]] <- serialize(tempModel,NULL)
+    
+    # Calculate Mean Squared Error (MSE) for the training set
+    tempMSEtrain = sum((train_set$price - (compute(tempModel, NN_train_set)$net.result))^2)/nrow(NN_test_set)
+    
+    # Calculate Mean Squared Error (MSE) for the test set
+    tempMSEtest = sum((test_set$price - (compute(tempModel, NN_test_set)$net.result))^2)/nrow(NN_test_set)
+    
+    # Calculate Total Sum of Squares (TSS) and Residual Sum of Squares (RSS) for the test set
+    tempTSS <- sum((mean(test_set$price) - (compute(tempModel, NN_test_set)$net.result))^2)
+    tempRSS <- sum((test_set$price - (compute(tempModel, NN_test_set)$net.result))^2)
+    tempR2 <- 1 - (tempRSS / tempTSS)
+    
+    # Add a new row to the performance data frame with the calculated metrics for the model
+    NN_perf_df <- rbind(NN_perf_df,
+                        data.frame(Record = NA,
+                                   ModelName = "NN: all regressors",
+                                   RegressorsNum = 25,
+                                   AIC = NA, BIC = NA, lambda = NA, alpha = NA, TreesNum = NA,
+                                   LayersNum = tempLayersNum,
+                                   MSEtrain = round(tempMSEtrain, 3),
+                                   RMSEtrain = round(sqrt(tempMSEtrain), 3),
+                                   MSEtest = round(tempMSEtest, 3),
+                                   RMSEtest = round(sqrt(tempMSEtest), 3),
+                                   R2 = tempR2,
+                                   Model = NA))
+  }
+}
+
+# Store the list of serialized Neural Network models in the performance data frame
+NN_perf_df$Model <- NNModelsList
+
+# best Neural Networks consideration based on the lowest MSE on the training set
+newRow = NN_perf_df[which.min(NN_perf_df$MSEtrain),]
+newRow$Record <- "Neural Network lower MSE error on train"
+best_perf_df <- rbind(best_perf_df, newRow)
+
+# best Neural Networks consideration based on the lowest MSE on the test set
+newRow = NN_perf_df[which.min(NN_perf_df$MSEtest),]
+newRow$Record <- "Neural Network lower MSE error on test"
+best_perf_df <- rbind(best_perf_df, newRow)
+```
+
+I printed the residuals of the best performing neural networks both in the train and test data-sets. I also plotted a visualization of the best performing neural network on test data.
+
+```{r, echo = FALSE, warning=FALSE, message=FALSE}
+# EVALUATING LOWER-ERROR NEURAL NETWORKS'
+
+# Evaluating residuals distribution for the model with the lowest training MSE
+tempModel <- unserialize(NN_perf_df$Model[[which.min(NN_perf_df$MSEtrain)]])
+hist(((compute(tempModel, NN_train_set)$net.result) * sd_price + mean_price) - (train_set$price * sd_price + mean_price), 
+     main = "Residuals Distribution for Best Train Model")
+
+# Evaluating residuals distribution for the model with the lowest testing MSE
+tempModel <- unserialize(NN_perf_df$Model[[which.min(NN_perf_df$MSEtest)]])
+hist(((compute(tempModel, NN_test_set)$net.result) * sd_price + mean_price) - (test_set$price * sd_price + mean_price), 
+     main = "Residuals Distribution for Best Test Model")
+
+# Evaluating best predicting Neural Network's performance
+plot(NN_test_set$price * sd_price + mean_price, 
+     compute(tempModel, NN_test_set)$net.result * sd_price + mean_price, 
+     col = "red", 
+     main = 'Real vs Predicted Prices')
+abline(0, 1, lwd = 2, col = "blue")
+```
+
+-The first histogram displays the distribution of residuals (the differences between actual and predicted prices) for the training data. The residuals have been adjusted back to their original scale using the standard deviation and mean of the price.Here, the histogram suggests the model's predictions are quite close to the actual values, with the highest frequency of residuals close to zero indicating that the model is unbiased and its errors are evenly distributed.
+
+-The second histogram shows the distribution of residuals for the test data, also adjusted to the original scale.
+
+-The scatter plot compares the actual prices to the predicted prices on the test data.The points follow the line quite well, indicating that the model predicts the car prices with a good level of accuracy.
+
+---
+
+To conclude this regression task, I printed the data-frame containing all of the best performing models and their characteristics. 
+
+```{r, echo = FALSE, warning=FALSE, message=FALSE}
+# OBSERVING OUR BEST MODELS CHARACTERISTICS
+library(DT)
+rownames(best_perf_df) <- NULL
+best_perf_df <- best_perf_df[, -which(names(best_perf_df) == "Model")]
+datatable(best_perf_df, options = list(scrollX = TRUE))
+```
+
+## Conclusions
+The Neural Network model emerged as the standout for this task primarily due to its exceptional performance metrics on the test data. The specific model that showcased the best results obtained an almost perfect R2 value of 0.9976, which signifies that the model was capable of explaining nearly all the variance in car prices within the test dataset. This level of performance is indicative of a highly accurate model that closely aligns its predictions with the actual values.
+
+Moreover, the same Neural Network model achieved an extraordinarily low RMSE of 0.032 on the test data. This value is particularly noteworthy because RMSE is a measure of the average magnitude of the prediction errors, meaning the lower the RMSE, the closer the predicted values are to the actual values. In this context, an RMSE of 0.032 suggests that, on average, the model's predictions were very close to the true selling prices of the cars, making it highly reliable for predicting car prices on new, unseen data.
+
+When we compare these metrics to those of the other models, it becomes evident why the Neural Network was superior. For instance, the Random Forest model, which was the next best performing model, had a test RMSE of 0.155 and an R2 of 0.9330. While these figures are commendable and suggest that the Random Forest model is also a strong predictor of car prices, they do not match the near-perfect predictive accuracy of the Neural Network model. Also there was a  possibility of overfitting, as shown by the difference between the training and test RMSE.
+
+The Elastic Net model showed a test RMSE of 0.338 and an R2 of 0.8999, which, while indicating a decent fit, lagged behind the Neural Network in terms of predictive accuracy. It did not achieved best scoring performance in any of the fields we took under consideration,and it implied a potential over-regularization leading to underfitting. 
+
+Similarly, the BIC and AIC models, despite their solid performance on the training data, did not quite reach the same level of precision on the test data as the Neural Network model.
+
+In summary, the Neural Network model demonstrated unparalleled predictive accuracy and an exceptional ability to account for the variance in car prices, as reflected by its R2 and RMSE values. This makes it the best model for this task.
+
+---
+
+# Task 2: Clustering
+
+In this task I experimented various clusterizations of cars basing on all the available covariates excluding model and carbody. The objective of the proposed models is to give advice to a company about marketing and policy making, as car market is strongly segmented and it is crucial to understand how a car would be categorized.
+
+```{r, echo = FALSE, warning=FALSE, message=FALSE}
+# DATA PREPARATION
+
+cluster_car_prices <- cbind(normalized_car_prices[,c(numericalVariables[numericalVariables != "citympg" & numericalVariables != "highwaympg"]),],
+                            cleaned_car_prices[categoricalVariables])
+numericalRegressors <- numericalVariables[numericalVariables != "highwaympg" & numericalVariables != "citympg" & numericalVariables != "price"]
+```
+
+
+### K-Means clustering
+
+I am focusing on K-Means clustering, using all the numerical variables and determining the optimal number of clusters based on the three main methods we are familiar with.
+
+
+```{r, echo = TRUE, warning=FALSE, message=FALSE}
+# K-MEANS CLUSTERING 
+
+set.seed(31) # Set a random seed for reproducibility of results
+
+# Use fviz_nbclust to determine the optimal number of clusters based on the silhouette method
+fviz_nbclust(cluster_car_prices[numericalRegressors],
+             FUNcluster = kmeans, 
+             method = "silhouette", # Use silhouette method for assessing cluster quality
+             iter.max=30 ) 
+
+# Use fviz_nbclust again to determine the optimal number of clusters based on the within-cluster sum of squares (wss)
+fviz_nbclust(cluster_car_prices[numericalRegressors],
+             FUNcluster = kmeans,
+             method = "wss",
+             iter.max=30) 
+
+tempClustersNum = 2 # Set the number of clusters to 2 based on previous analysis
+
+# Perform k-means clustering with the chosen number of clusters
+kMeans2 <- kmeans(cluster_car_prices[numericalRegressors],
+                       centers = tempClustersNum,
+                       nstart = 10, # Number of random sets to be chosen
+                       iter.max=100) 
+
+# Visualize the clusters using fviz_cluster
+fviz_cluster(kMeans2, data = cluster_car_prices[numericalRegressors]) +
+  theme_minimal() + ggtitle("K-Means") 
+
+```
+
+Analyzing the silhouette values, we find the optimal cluster number is 3, with 2 and 4 as close alternatives. However, the elbow method indicates that 2 clusters are optimal since additional clusters don't significantly reduce the within-cluster sum of squares. Thus, we select 2 as the best number for k-means clustering.
+
+---
+
+Silhouette and totWSS score: 
+
+```{r, echo = FALSE, warning=FALSE, message=FALSE}
+sil_scores <- silhouette(kMeans2$cluster, dist(cluster_car_prices[numericalRegressors]))
+avg_sil_score <- mean(sil_scores[, "sil_width"])
+
+print(paste("K-Means AVG Silhouette width:", avg_sil_score,", totWSS:", kMeans2$tot.withinss))
+```
+
+---
+
+### Hierarchical clustering
+
+For our hierarchical models, we utilized Euclidean distance, which proved to be the most efficient. We employed the Ward.D2 and Complete methods for clustering into a specific number of groups, chosen based on the dendrogram's height analysis.
+
+
+```{r, echo = TRUE, warning=FALSE, message=FALSE}
+# HIERARCHICAL CLUSTERING USING EUCLIDEAN DISTANCE MATRIX 
+
+# Compute the Euclidean distance matrix for the numerical variables
+distanceMatrixEuclidean <- dist(cluster_car_prices[numericalRegressors],
+                       method = "euclidean")
+
+
+# WARD.D2 METHOD
+
+# Perform hierarchical clustering using the Ward.D2 method on the Euclidean distance matrix
+dendogramWardD2_Euclidean <- hclust(distanceMatrixEuclidean, method = "ward.D2") 
+plot(dendogramWardD2_Euclidean, cex=0.2)
+
+# Define the number of clusters to cut the dendrogram into
+tempClustersNum = 4
+
+# Cut the dendrogram to form 'tempClustersNum' clusters and assign each point to a cluster
+tempGroups <- cutree(dendogramWardD2_Euclidean, k = tempClustersNum)
+## Add rectangle borders on the dendrogram to visualize the clusters
+rect.hclust(dendogramWardD2_Euclidean, k = tempClustersNum, border = "blue")
+
+# Visualize the clusters using fviz_cluster
+fviz_cluster(list(data = cluster_car_prices[numericalRegressors],
+                  cluster = tempGroups)) + theme_minimal() + ggtitle("Euclidian-distance-based Ward D2 Clustering, k = 4") 
+
+# Assign the cluster groups to the cluster_car_prices data frame
+cluster_car_prices$companyClustered1 = tempGroups
+
+# Create a contingency table to see the distribution of car companies across the clusters
+tab_hier_eucl_wd2 = table(cluster_car_prices$carCompany, cluster_car_prices$companyClustered1)
+
+```
+
+In the provided dendrogram, if you placed a horizontal line at a height of around 3 (which is roughly where the blue rectangles are), you would cut across four vertical lines, suggesting that four clusters could be a good choice for this particular dataset.
+
+The overlap of the clusters in the second plot indicates that while the algorithm has identified four distinct groups, there are cars with characteristics that place them close to the borders of multiple clusters. This suggests that the distinctions between some of the groups are not entirely clear-cut, and there might be a gradual transition or similarities between the segments.From a marketing perspective, this overlap may point to opportunities for cross-segment strategies.
+
+---
+
+Silhouette and totWSS score:
+
+```{r, echo = FALSE, warning=FALSE, message=FALSE}
+# Silhouette scores for HIC Ward D2
+sil_scores_ward <- silhouette(tempGroups, distanceMatrixEuclidean)
+avg_sil_score_ward <- mean(sil_scores_ward[, "sil_width"])
+
+# Function to calculate WSS for a given set of clusters
+calc_wss <- function(data, clusters) {
+  wss = 0
+  for (k in unique(clusters)) {
+    cluster_data = data[clusters == k, ]
+    center = colMeans(cluster_data)
+    wss = wss + sum(rowSums((cluster_data - center) ^ 2))
+  }
+  return(wss)
+}
+
+# Calculate WSS for Ward D2
+wss_ward <- calc_wss(cluster_car_prices[numericalRegressors], tempGroups)
+
+print(paste("Ward D2 Hierarchical Clustering AVG Silhouette width:", avg_sil_score_ward,", totWSS:", wss_ward))
+```
+
+---
+
+### The Complete Method 
+
+```{r, echo = TRUE, warning=FALSE, message=FALSE}
+# COMPLETE METHOD
+
+# Perform hierarchical clustering using the Complete method on the Euclidean distance matrix
+dendogramComplete_Euclidean <- hclust(distanceMatrixEuclidean, method = "complete") 
+plot(dendogramComplete_Euclidean, cex=0.2)
+
+tempClustersNum = 3 # Set the number of clusters to 3
+
+# Cut the dendrogram into 3 groups and assign each observation to a cluster
+tempGroups2 <- cutree(dendogramComplete_Euclidean, k = tempClustersNum) 
+rect.hclust(dendogramComplete_Euclidean, k = tempClustersNum, border = "blue")
+
+fviz_cluster(list(data = cluster_car_prices[numericalRegressors],
+                  cluster = tempGroups2)) + theme_minimal() + ggtitle("Euclidian-distance-based Complete Clustering, k = 3")
+
+cluster_car_prices$companyClustered2 = tempGroups2
+
+
+tab_hier_eucl_comp = table(cluster_car_prices$carCompany, cluster_car_prices$companyClustered2)
+```
+
+The clusters in the complete linkage method are often non-overlapping, as this method tends to join individual observations that are nearest to each other, creating distinct and well-separated clusters. If we see any overlap in this visualization, it is because the multidimensional data has been reduced to two dimensions for visualization, which can cause some loss of the separation that exists in higher dimensions.
+
+---
+
+Silhouette and totWSS score: 
+
+```{r, echo = FALSE, warning=FALSE, message=FALSE}
+# Silhouette scores for complete HIC
+sil_scores_complete <- silhouette(tempGroups2, distanceMatrixEuclidean)
+avg_sil_score_complete <- mean(sil_scores_complete[, "sil_width"])
+
+# Calculate WSS for Complete HIC
+wss_complete <- calc_wss(cluster_car_prices[numericalRegressors], tempGroups2)
+
+print(paste("Complete Hierarchical Clustering Silhouette width:", avg_sil_score_complete,", totWSS:", wss_complete))
+```
+
+---
+
+Based on the metrics we've seen, K-Means Clustering appears to be the best choice. It not only provides more distinct clusters (as indicated by the highest silhouette score) but also clusters where the points are closer to their centroids (as indicated by the lowest totWSS). This suggests that K-Means has effectively captured the structure in our data with the most distinct and compact clusters.
+
+## Market Segmentation:
+Let's check for the average car prices in the two clusters we got from the K-Means partition.
+
+```{r, echo = TRUE, warning=FALSE, message=FALSE}
+# Making 2 dataframes for each cluster
+clust1 <- cleaned_car_prices[which(kMeans2$cluster == 1),]
+clust2 <- cleaned_car_prices[which(kMeans2$cluster == 2),]
+
+# Average price for each cluster
+print(paste("Average car price in: Cluster 1:", round(mean(clust1$price),3),", Cluster 2: ", round(mean(clust2$price),3)))
+```
+
+---
+
+To have a better view of the distribution of prices in each cluster we can visualise them using boxplots.
+
+```{r, echo = FALSE, warning=FALSE, message=FALSE}
+ggplot(cleaned_car_prices, aes(x = factor(kMeans2$cluster), y = price)) +
+  geom_boxplot() +
+  labs(x = "Cluster", y = "Price", title = "Boxplot of Car Prices by Cluster") +
+  theme_minimal()
+
+```
+
+Cluster 1 represents a higher-priced segment. These could include luxury cars, vehicles with advanced features, or larger models such as SUVs and trucks. This segment appeals to consumers who prioritize quality, brand, features, or status over cost.
+Marketing should emphasize quality, brand reputation, advanced features, luxury, or performance. Customers in this segment might be more responsive to brand prestige, technological advancements, and luxury amenities.
+
+Cluster 2 represents a lower-priced segment of the car market. These could be budget-friendly, economical cars. This cluster is likely to attract cost-conscious consumers, those looking for their first car, or perhaps those seeking a reliable but affordable option. Marketing strategies in this case should focus on affordability, value for money, fuel efficiency, and low maintenance costs. This segment might also respond well to promotions or financing options.
+
+## Conclusion
+The analysis shows that it is indeed possible to segment the car market effectively based on vehicle characteristics. This suggests that certain features or combinations of features are distinctive enough to group cars into two different market segments. Our features (variables) have significant predictive power in determining market segments. This indicates a strong correlation between these characteristics and the categorization of cars into different segments. Therefore, the clustering results can reveal which car features are the most influential in defining each segment. For example, if luxury cars and economy cars form separate clusters, attributes like price, engine power, and brand could be key differentiators.Now given the characteristicss of a car with the model we can predict the price and we can also tell which market segment it belongs to. 
+
+
+
+
+
+
